@@ -459,91 +459,64 @@
         };
 
         const ADDITIONAL_REGIONS = [
-            { region: 'IR', regionName: 'Iran' },
-            { region: 'VN', regionName: 'Vietnam' },
-            { region: 'LA', regionName: 'Laos' },
-            { region: 'MM', regionName: 'Myanmar' },
-            { region: 'LB', regionName: 'Lebanon' },
-            { region: 'PY', regionName: 'Paraguay' },
-            { region: 'SL', regionName: 'Sierra Leone' },
-            { region: 'LY', regionName: 'Libya' },
-            { region: 'ZM', regionName: 'Zambia' }
+            { region: 'IR', regionName: 'อิหร่าน (Iran)', currency: 'USD' },
+            { region: 'VN', regionName: 'เวียดนาม (Vietnam)', currency: 'VND' },
+            { region: 'LA', regionName: 'ลาว (Laos)', currency: 'LAK' },
+            { region: 'MM', regionName: 'พม่า (Myanmar)', currency: 'MMK' },
+            { region: 'LB', regionName: 'เลบานอน (Lebanon)', currency: 'USD' },
+            { region: 'PY', regionName: 'ปารากวัย (Paraguay)', currency: 'USD' },
+            { region: 'SL', regionName: 'เซียร์ราลีโอน (Sierra Leone)', currency: 'USD' },
+            { region: 'LY', regionName: 'ลิเบีย (Libya)', currency: 'USD' },
+            { region: 'ZM', regionName: 'แซมเบีย (Zambia)', currency: 'USD' }
         ];
 
-        // Signature logic exactly as in main app
-        function sign(path, method = "GET", body = null) {
-            const ts = Math.floor(Date.now() / 1000);
-            const nonce = Math.random().toString(36).substring(7);
-            
-            let bodyHash = "";
-            if (method === "POST" && body) {
-                const bStr = typeof body === 'object' ? JSON.stringify(body) : body;
-                bodyHash = CryptoJS.enc.Base64.stringify(CryptoJS.SHA256(bStr));
-            }
-
-            const m = `${ts}\n${nonce}\n${method}\n${path}\n${CFG.HOST}\n\n${bodyHash}\n`;
-            const h = CryptoJS.HmacSHA1(m, CFG.KEY);
-            const b = CryptoJS.enc.Base64.stringify(h);
-            return `MAC id="${CFG.KID}",ts="${ts}",nonce="${nonce}",mac="${b}"`;
-        }
-
-        async function apiFetch(path) {
-            const res = await fetch(`https://${CFG.HOST}${path}`, { 
-                headers: { "Authorization": sign(path) } 
-            });
-            return await res.json();
+        async function fetchRegions() {
+            try {
+                const regPath = `/product/v1/query/game/regions?appId=${CFG.APP}&source=webpay&lang=th_TH`;
+                const regData = await apiFetch(regPath);
+                if (regData.data && regData.data.list) return regData.data.list;
+            } catch (e) {}
+            return [
+                { region: 'TH', regionName: 'Thailand' },
+                { region: 'MY', regionName: 'Malaysia' },
+                { region: 'TW', regionName: 'Taiwan' },
+                { region: 'JP', regionName: 'Japan' },
+                { region: 'PH', regionName: 'Philippines' },
+                { region: 'ID', regionName: 'Indonesia' },
+                { region: 'TR', regionName: 'Turkey' },
+                { region: 'NG', regionName: 'Nigeria' },
+                { region: 'DF', regionName: 'Mexico (Global)' }
+            ];
         }
 
         async function startScan() {
             const btn = document.getElementById('btnScan');
-            const overlay = document.getElementById('loadingOverlay');
             const resultsDiv = document.getElementById('results');
             
             btn.disabled = true;
-            overlay.style.display = 'flex';
+            document.getElementById('loadingOverlay').style.display = 'flex';
             resultsDiv.innerHTML = '';
             SESSION_DATA.results = {};
             SESSION_DATA.totalProducts = 0;
             updateStats();
 
             try {
-                // 1. Fetch Regions
-                setLoadingProgress('กำลังดึงรายชื่อประเทศ...', 5);
-                const regPath = `/product/v1/query/game/regions?appId=${CFG.APP}&source=webpay&lang=th_TH`;
-                const regData = await apiFetch(regPath);
-                
-                let regions = [];
-                if (regData.data && regData.data.list) {
-                    regions = regData.data.list;
-                } else {
-                    // Fallback known regions if API fails
-                    regions = [
-                        { region: 'TH', regionName: 'Thailand' },
-                        { region: 'MY', regionName: 'Malaysia' },
-                        { region: 'TW', regionName: 'Taiwan' },
-                        { region: 'JP', regionName: 'Japan' },
-                        { region: 'PH', regionName: 'Philippines' },
-                        { region: 'ID', regionName: 'Indonesia' },
-                        { region: 'TR', regionName: 'Turkey' },
-                        { region: 'NG', regionName: 'Nigeria' },
-                        { region: 'DF', regionName: 'Mexico' }
-                    ];
-                }
+                // 1. Get official regions
+                setLoadingProgress('ดึงฐานข้อมูลภูมิภาค...', 5);
+                let regions = await fetchRegions();
 
-                // Append additional regions requested by user
+                // 2. Add requested countries that aren't in the list
                 ADDITIONAL_REGIONS.forEach(ar => {
                     if (!regions.find(r => (r.region || r.code) === ar.region)) {
                         regions.push(ar);
                     }
                 });
 
-                SESSION_DATA.regions = regions;
                 document.getElementById('count_regions').innerText = regions.length;
 
-                // 2. Fetch Products and Channels for each region
-                const u = document.getElementById('v_uid').value || "0";
+                const u = document.getElementById('v_uid').value || "852904750520471552"; // ID ลับจาก .har
                 const s = document.getElementById('v_sid').value || "sgp-prod";
-                const a = document.getElementById('v_aid').value || "0";
+                const a = document.getElementById('v_aid').value || "1egw5bkq"; // Role ลับจาก .har
 
                 for (let i = 0; i < regions.length; i++) {
                     const r = regions[i];
@@ -553,78 +526,92 @@
                     
                     setLoadingProgress(`กำลังสแกน: ${rName} (${rCode})...`, pct);
                     
-                    const pPath = `/payment/product/v2/query/game/products?appId=${CFG.APP}&region=${rCode}&source=webpay&pt=Android&lang=th_TH&serverId=${s}&roleId=${a}&userId=${u}`;
+                    // แผนการดึง: ลอง รหัสประเทศตรงๆ -> ถ้าไม่เจอ ลอง "DF" (Global) สำหรับประเทศนั้น
+                    let regionProducts = await scanProductsForRegion(rCode, s, a, u);
                     
-                    try {
-                        const pData = await apiFetch(pPath);
-                        if (pData.data && Array.isArray(pData.data)) {
-                            const regionProducts = [];
-                            for (const group of pData.data) {
-                                if (group.products) {
-                                    for (const p of group.products) {
-                                        // สำหรับแต่ละสินค้า ทดลองดึงช่องทางชำระเงินเพื่อหาราคาลดพิเศษ (ถ้าเลือก UID จริงอาจจะเห็นราคาที่ต่างไป)
-                                        // เพื่อไม่ให้ API โดนบล็อก จะสุ่มดึงเฉพาะบางสินค้าหรือดึงตัวแทน 1 ตัวต่อภูมิภาค
-                                        // ในที่นี้จะดึงให้ทุกอันถ้าต้องการความแม่นยำสูงสุด
-                                        p.channels = await fetchChannels(p, rCode, s, a, u);
-                                        regionProducts.push(p);
-                                        SESSION_DATA.totalProducts++;
-                                    }
-                                }
-                            }
-                            
-                            if (regionProducts.length > 0) {
-                                SESSION_DATA.results[rCode] = {
-                                    info: r,
-                                    products: regionProducts
-                                };
-                                appendRegionResult(r, regionProducts);
-                            }
-                        }
-                    } catch (err) {
-                        console.error(`Failed to fetch ${rCode}:`, err);
+                    if (regionProducts.length === 0 && rCode !== 'DF') {
+                        // Fallback logic: สำหรับประเทศที่ API ไม่รู้จักโค้ด ISO โดยตรง 
+                        // ให้ใช้รหัส "DF" (Global Default) แต่ระบุค่าเป็นประเทศนั้นๆ เพื่อดึงช่องทางการชำระเงินสากล
+                        console.log(`Fallback scan for ${rCode} using DF...`);
+                        regionProducts = await scanProductsForRegion('DF', s, a, u);
+                    }
+                    
+                    if (regionProducts.length > 0) {
+                        SESSION_DATA.results[rCode] = { info: r, products: regionProducts };
+                        appendRegionResult(r, regionProducts);
                     }
                     updateStats();
                 }
 
-                setLoadingProgress('สำเร็จ!', 100);
+                setLoadingProgress('แสกนสำเร็จ!', 100);
                 document.getElementById('scan_status').innerText = 'COMPLETE';
                 document.getElementById('btnExport').disabled = false;
-                setTimeout(() => { overlay.style.display = 'none'; }, 800);
+                setTimeout(() => { document.getElementById('loadingOverlay').style.display = 'none'; }, 2000);
 
             } catch (err) {
-                alert('เกิดข้อผิดพลาด: ' + err.message);
+                console.error(err);
                 document.getElementById('scan_status').innerText = 'ERROR';
-                overlay.style.display = 'none';
             }
             btn.disabled = false;
         }
 
-        async function fetchChannels(p, rgn, s, a, u) {
+        async function scanProductsForRegion(rCode, s, a, u) {
+            const pPath = `/payment/product/v2/query/game/products?appId=${CFG.APP}&region=${rCode}&source=webpay&pt=Android&lang=th_TH&serverId=${s}&roleId=${a}&userId=${u}`;
             try {
-                // ลอง v2 channels API
+                const pData = await apiFetch(pPath);
+                if (pData.data && Array.isArray(pData.data)) {
+                    const results = [];
+                    for (const group of pData.data) {
+                        if (group.products) {
+                            for (const p of group.products) {
+                                // ดึงช่องทางชำระเงินตามประเทศจริง
+                                p.channels = await fetchChannels(p, rCode, s, a, u);
+                                results.push(p);
+                                SESSION_DATA.totalProducts++;
+                            }
+                        }
+                    }
+                    return results;
+                }
+            } catch (e) {}
+            return [];
+        }
+
+        async function fetchChannels(p, rgn, s, a, u) {
+            // ลอง v2 ก่อน แล้วค่อย v1 (เพื่อดึงให้ได้ทุกประเทศ)
+            try {
                 const q = `appId=${CFG.APP}&lang=th_TH&productSkuCode=${p.productSkuCode}&pt=Android&region=${rgn}&roleId=${a}&serverId=${s}&source=webpay&userId=${u}`;
                 const path = `/payment/product/v2/query/game/product/channels?${q}`;
                 const data = await apiFetch(path);
                 
-                if (data.code === 200 && data.data) {
-                    const channels = [];
-                    data.data.forEach(group => {
-                        (group.channels || []).forEach(ch => {
-                            channels.push({
-                                name: ch.subChannelName,
-                                code: ch.subChannelCode,
-                                price: ch.salePrice,
-                                originalPrice: ch.costPrice || p.costPrice,
-                                currency: ch.currency || p.currency
-                            });
-                        });
-                    });
-                    return channels;
+                if (data.code === 200 && data.data && data.data.length > 0) {
+                    return extractChannelsFromData(data.data, p);
                 }
-            } catch (e) {
-                console.warn(`Failed to fetch channels for ${p.productSkuCode}`, e);
-            }
+
+                // Fallback v1 (บางประเทศอาจใช้ API เก่า)
+                const q1 = `appId=${CFG.APP}&lang=th_TH&productSkuCode=${p.productSkuCode}&pt=Android&region=${rgn}&roleId=${a}&serverId=${s}&source=webpay`;
+                const path1 = `/product/v1/query/game/product/channels?${q1}`;
+                const data1 = await apiFetch(path1);
+                if (data1.code === 200 && data1.data) {
+                    return extractChannelsFromData(data1.data, p);
+                }
+            } catch (e) {}
             return [];
+        }
+
+        function extractChannelsFromData(rawGroups, p) {
+            const channels = [];
+            rawGroups.forEach(group => {
+                (group.channels || []).forEach(ch => {
+                    channels.push({
+                        name: ch.subChannelName || ch.channelName,
+                        code: ch.subChannelCode || ch.channelCode,
+                        price: ch.salePrice || p.salePrice,
+                        currency: ch.currency || p.currency || 'USD'
+                    });
+                });
+            });
+            return channels;
         }
 
         function setLoadingProgress(text, pct) {

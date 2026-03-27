@@ -470,6 +470,37 @@
             { region: 'ZM', regionName: 'แซมเบีย (Zambia)', currency: 'USD' }
         ];
 
+        const SERVER_IDS = ['sgp-prod', 'fra-prod', 'va-prod', 'jp-prod', 'hk-prod'];
+
+        // Signature logic exactly as in main app
+        function sign(path, method = "GET", body = null) {
+            const ts = Math.floor(Date.now() / 1000);
+            const nonce = Math.random().toString(36).substring(7);
+            
+            let bodyHash = "";
+            if (method === "POST" && body) {
+                const bStr = typeof body === 'object' ? JSON.stringify(body) : body;
+                bodyHash = CryptoJS.enc.Base64.stringify(CryptoJS.SHA256(bStr));
+            }
+
+            const m = `${ts}\n${nonce}\n${method}\n${path}\n${CFG.HOST}\n\n${bodyHash}\n`;
+            const h = CryptoJS.HmacSHA1(m, CFG.KEY);
+            const b = CryptoJS.enc.Base64.stringify(h);
+            return `MAC id="${CFG.KID}",ts="${ts}",nonce="${nonce}",mac="${b}"`;
+        }
+
+        async function apiFetch(path) {
+            try {
+                const res = await fetch(`https://${CFG.HOST}${path}`, { 
+                    headers: { "Authorization": sign(path) } 
+                });
+                return await res.json();
+            } catch (e) {
+                console.error("Fetch Error:", e);
+                return { code: 500, data: null };
+            }
+        }
+
         async function fetchRegions() {
             try {
                 const regPath = `/product/v1/query/game/regions?appId=${CFG.APP}&source=webpay&lang=th_TH`;

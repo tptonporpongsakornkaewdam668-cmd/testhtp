@@ -610,38 +610,58 @@
         }
 
         async function fetchChannels(p, rgn, s, a, u) {
-            // ลอง v2 ก่อน แล้วค่อย v1 (เพื่อดึงให้ได้ทุกประเทศ)
-            try {
-                const q = `appId=${CFG.APP}&lang=th_TH&productSkuCode=${p.productSkuCode}&pt=Android&region=${rgn}&roleId=${a}&serverId=${s}&source=webpay&userId=${u}`;
-                const path = `/payment/product/v2/query/game/product/channels?${q}`;
-                const data = await apiFetch(path);
-                
-                if (data.code === 200 && data.data && data.data.length > 0) {
-                    return extractChannelsFromData(data.data, p);
-                }
+            const PLATFORMS = ['Android', 'Web', 'Windows'];
+            const LANGS = ['th_TH', 'en_US'];
+            let allChannels = [];
 
-                // Fallback v1 (บางประเทศอาจใช้ API เก่า)
-                const q1 = `appId=${CFG.APP}&lang=th_TH&productSkuCode=${p.productSkuCode}&pt=Android&region=${rgn}&roleId=${a}&serverId=${s}&source=webpay`;
-                const path1 = `/product/v1/query/game/product/channels?${q1}`;
-                const data1 = await apiFetch(path1);
-                if (data1.code === 200 && data1.data) {
-                    return extractChannelsFromData(data1.data, p);
+            for (const lang of LANGS) {
+                for (const platform of PLATFORMS) {
+                    try {
+                        // 1. ลอง v2 ก่อน
+                        const q2 = `appId=${CFG.APP}&lang=${lang}&productSkuCode=${p.productSkuCode}&pt=${platform}&region=${rgn}&roleId=${a}&serverId=${s}&source=webpay&userId=${u}`;
+                        const path2 = `/payment/product/v2/query/game/product/channels?${q2}`;
+                        const data2 = await apiFetch(path2);
+                        
+                        if (data2.code === 200 && data2.data && data2.data.length > 0) {
+                            allChannels = extractChannelsFromData(data2.data, p);
+                        }
+
+                        // 2. ถ้า v2 ไม่เจอ ลอง v1
+                        if (allChannels.length === 0) {
+                            const q1 = `appId=${CFG.APP}&lang=${lang}&productSkuCode=${p.productSkuCode}&pt=${platform}&region=${rgn}&roleId=${a}&serverId=${s}&source=webpay`;
+                            const path1 = `/product/v1/query/game/product/channels?${q1}`;
+                            const data1 = await apiFetch(path1);
+                            if (data1.code === 200 && data1.data) {
+                                allChannels = extractChannelsFromData(data1.data, p);
+                            }
+                        }
+
+                        // ถ้าเจอข้อมูลแล้วในชุดนี้ ให้หยุดวน
+                        if (allChannels.length > 0) break;
+                    } catch (e) {}
                 }
-            } catch (e) {}
-            return [];
+                if (allChannels.length > 0) break;
+            }
+            return allChannels;
         }
 
         function extractChannelsFromData(rawGroups, p) {
             const channels = [];
-            rawGroups.forEach(group => {
-                (group.channels || []).forEach(ch => {
-                    channels.push({
-                        name: ch.subChannelName || ch.channelName,
-                        code: ch.subChannelCode || ch.channelCode,
-                        price: ch.salePrice || p.salePrice,
-                        currency: ch.currency || p.currency || 'USD'
+            // rawGroups อาจเป็น Array ของกลุ่มช่องทาง
+            const groups = Array.isArray(rawGroups) ? rawGroups : [rawGroups];
+            
+            groups.forEach(group => {
+                const chs = group.channels || group; // เผื่อโครงสร้าง v1/v2 ต่างกัน
+                if (Array.isArray(chs)) {
+                    chs.forEach(ch => {
+                        channels.push({
+                            name: ch.subChannelName || ch.channelName || ch.name,
+                            code: ch.subChannelCode || ch.channelCode || ch.code,
+                            price: ch.salePrice || p.salePrice,
+                            currency: ch.currency || p.currency || 'USD'
+                        });
                     });
-                });
+                }
             });
             return channels;
         }
